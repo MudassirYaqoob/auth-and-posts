@@ -1,4 +1,10 @@
-const { signupSchema, signinSchema } = require("../middlewares/validator.js");
+/* eslint-disable no-undef */
+
+const {
+  signupSchema,
+  signinSchema,
+  acceptCodeSchema,
+} = require("../middlewares/validator.js");
 const User = require("../models/usersModel.js");
 const {
   doHash,
@@ -8,7 +14,7 @@ const {
 const jwt = require("jsonwebtoken");
 const transport = require("../middlewares/sendEmail.js");
 
-exports.signup = async (req, res, next) => {
+exports.signup = async (req, res) => {
   console.log("body received is " + req.body);
   const { email, password } = req.body;
   if (!email || !password) {
@@ -17,7 +23,7 @@ exports.signup = async (req, res, next) => {
       message: "The email and password are required.",
     });
   }
-  const { error, value } = signupSchema.validate({ email, password });
+  const { error } = signupSchema.validate({ email, password });
   if (error) {
     return res.status(300).json({
       status: false,
@@ -43,7 +49,7 @@ exports.signup = async (req, res, next) => {
     profile: result,
   });
 };
-exports.signin = async (req, res, next) => {
+exports.signin = async (req, res) => {
   console.log("body received is " + req.body);
   const { email, password } = req.body;
   if (!email || !password) {
@@ -52,7 +58,7 @@ exports.signin = async (req, res, next) => {
       message: "The email and password are required.",
     });
   }
-  const { error, value } = signinSchema.validate({ email, password });
+  const { error } = signinSchema.validate({ email, password });
   if (error) {
     return res.status(300).json({
       status: false,
@@ -96,11 +102,11 @@ exports.signin = async (req, res, next) => {
     });
 };
 
-exports.signout = (req, res, next) => {
+exports.signout = (req, res) => {
   res.clearCookie("Authorization").status(302).type("text").send("");
 };
 
-exports.sendCode = async (req, res, next) => {
+exports.sendCode = async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(404).json({
@@ -126,7 +132,10 @@ exports.sendCode = async (req, res, next) => {
     subject: "verification code",
     html: "<h1>" + code + "</h1>",
   });
-  console.log("infor is==>" + info);
+  console.log("info is==>" + info);
+  console.log("Accepted:", info.accepted);
+  console.log("User email:", user.email);
+
   if (info.accepted[0] === user.email) {
     const hashedCodeValue = hmacProcess(
       code,
@@ -142,4 +151,77 @@ exports.sendCode = async (req, res, next) => {
       message: "Something went wrong.. the sender email info is not accepted",
     });
   }
+};
+
+exports.verifyCode = async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.status(404).json({
+      status: false,
+      message: "Email and code are required",
+    });
+  }
+  const providedCode = code.toString();
+  const { error } = acceptCodeSchema.validate({ email, providedCode });
+  if (error) {
+    return res.status(300).json({
+      status: false,
+      message: "Error: " + error,
+    });
+  }
+  const user = await User.findOne({ email }).select(
+    "+verificationCode +verificationCodeValidation"
+  );
+  if (!user) {
+    return res.status(404).json({
+      status: false,
+      message: "Email is not yet registered kindly signup first.",
+    });
+  }
+  if (!user.verificationCode || !user.verificationCodeValidation) {
+    return res.status(404).json({
+      status: false,
+      message: "Kindly request for a new code",
+    });
+  }
+  if (user.verified) {
+    return res.status(404).json({
+      status: false,
+      message: "User is already verified",
+    });
+  }
+  const currentTime = Date.now();
+  console.log(
+    "code validation is =>'" +
+      user.verificationCodeValidation +
+      "and current time is i " +
+      currentTime +
+      "remainign after minus  is " +
+      (currentTime - user.verificationCodeValidation) +
+      "and ms value is " +
+      5 * 1000 * 60 +
+      "and is greater is " +
+      (currentTime - user.verificationCodeValidation > 5 * 1000 * 60)
+  );
+  if (currentTime - user.verificationCodeValidation > 5 * 1000 * 60) {
+    return res.status(404).json({
+      status: false,
+      message: "The code has expired kindly request for a new one.",
+    });
+  }
+  const hmacCode = hmacProcess(code, process.env.HMAC_VERIFICATION_SECRET);
+  if (hmacCode !== user.verificationCode) {
+    return res.status(404).json({
+      status: false,
+      message: "Invalid code",
+    });
+  }
+  user.verified = true;
+  user.verificationCode = undefined;
+  user.verificationCodeValidation = undefined;
+  await user.save();
+  res.json({
+    status: true,
+    message: "Your email has been verified successfully.",
+  });
 };

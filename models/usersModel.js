@@ -1,6 +1,7 @@
+/* eslint-disable no-undef */
 const mongoose = require("mongoose");
 
-const userSchema = mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
     email: {
       type: String,
@@ -37,6 +38,7 @@ const userSchema = mongoose.Schema(
       select: false,
     },
   },
+  // @ts-ignore
   {
     timeStamps: true,
   }

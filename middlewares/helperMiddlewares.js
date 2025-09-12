@@ -1,3 +1,5 @@
+/* eslint-disable no-undef */
+
 const color = require("colors");
 const colors = {
   GET: color.green,

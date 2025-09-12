@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 const { hash, compare } = require("bcryptjs");
 const { createHmac } = require("crypto");
 exports.doHash = (hashVal, saltValue) => {

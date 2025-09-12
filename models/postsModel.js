@@ -1,6 +1,7 @@
+/* eslint-disable no-undef */
 const mongoose = require("mongoose");
 
-const postsSchema = mongoose.Schema(
+const postsSchema = new mongoose.Schema(
   {
     title: {
       type: String,
