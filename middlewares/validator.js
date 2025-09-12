@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 const joi = require("joi");
 
 exports.signupSchema = joi.object({
@@ -23,4 +24,16 @@ exports.signinSchema = joi.object({
       tlds: { allow: ["com", "net"] },
     }),
   password: joi.string().required(),
+});
+
+exports.acceptCodeSchema = joi.object({
+  email: joi
+    .string()
+    .min(6)
+    .max(60)
+    .required()
+    .email({
+      tlds: { allow: ["com", "net"] },
+    }),
+  providedCode: joi.number().required(),
 });
