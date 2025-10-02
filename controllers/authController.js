@@ -4,6 +4,7 @@ const {
   signupSchema,
   signinSchema,
   acceptCodeSchema,
+  changePasswordSchema,
 } = require("../middlewares/validator.js");
 const User = require("../models/usersModel.js");
 const {
@@ -99,6 +100,7 @@ exports.signin = async (req, res) => {
     .json({
       status: true,
       profile: user,
+      token: token,
     });
 };
 
@@ -191,18 +193,7 @@ exports.verifyCode = async (req, res) => {
     });
   }
   const currentTime = Date.now();
-  console.log(
-    "code validation is =>'" +
-      user.verificationCodeValidation +
-      "and current time is i " +
-      currentTime +
-      "remainign after minus  is " +
-      (currentTime - user.verificationCodeValidation) +
-      "and ms value is " +
-      5 * 1000 * 60 +
-      "and is greater is " +
-      (currentTime - user.verificationCodeValidation > 5 * 1000 * 60)
-  );
+  console.log("code validation is =>'" + user.verificationCodeValidation);
   if (currentTime - user.verificationCodeValidation > 5 * 1000 * 60) {
     return res.status(404).json({
       status: false,
@@ -220,7 +211,158 @@ exports.verifyCode = async (req, res) => {
   user.verificationCode = undefined;
   user.verificationCodeValidation = undefined;
   await user.save();
-  res.json({
+  res.status(200).json({
+    status: true,
+    message: "Your email has been verified successfully.",
+  });
+};
+
+exports.changePassword = async (req, res) => {
+  const { userId, verified } = req.user;
+  const { newPassword, oldPassword } = req.body;
+  if (!newPassword || !oldPassword) {
+    res.status(400).json({
+      status: false,
+      message: "new password and old password are required",
+    });
+  }
+  const { error } = changePasswordSchema.validate({ newPassword, oldPassword });
+  if (error) {
+    return res.status(300).json({
+      status: false,
+      message: "Got error " + error,
+    });
+  }
+  if (!verified) {
+    return res.status(300).json({
+      status: false,
+      message: "Unverified User",
+    });
+  }
+
+  const existingUser = await User.findOne({
+    _id: userId,
+  }).select("+password");
+  if (!existingUser) {
+    return res.status(300).json({
+      status: false,
+      message: "The user doesn’t exist",
+    });
+  }
+
+  const result = await doHashValidation(oldPassword, existingUser.password);
+  if (!result) {
+    return res.status(300).json({
+      status: false,
+      message: "The password validation failed",
+    });
+  }
+
+  const hashedPassword = await doHash(newPassword, 12);
+  existingUser.password = hashedPassword;
+  await existingUser.save();
+  return res.status(300).json({
+    status: true,
+    message: "Password updated",
+  });
+};
+
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.status(404).json({
+      status: false,
+      message: "The email is not yet registered. Kindly signup now.",
+    });
+  }
+
+  const code = (Math.random() * 1000000).toString().padStart(6, "0");
+  let info = await transport.sendMail({
+    from: process.env.CODE_SENDER_EMAIL,
+    to: user.email,
+    subject: "verification code",
+    html: "<h1>" + code + "</h1>",
+  });
+  console.log("info is==>" + info);
+  console.log("Accepted:", info.accepted);
+  console.log("User email:", user.email);
+
+  if (info.accepted[0] === user.email) {
+    const hashedCodeValue = hmacProcess(
+      code,
+      process.env.HMAC_VERIFICATION_SECRET
+    );
+    user.verificationCode = hashedCodeValue;
+    user.verificationCodeValidation = Date.now();
+    await user.save();
+    return res.status(200).type("text").send("");
+  } else {
+    return res.status(300).json({
+      status: false,
+      message: "The info was not accepted" + info.accepted[0].toString(),
+    });
+  }
+};
+
+
+exports.verifyForgotPassword = async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.status(404).json({
+      status: false,
+      message: "Email and code are required",
+    });
+  }
+  const providedCode = code.toString();
+  const { error } = acceptCodeSchema.validate({ email, providedCode });
+  if (error) {
+    return res.status(300).json({
+      status: false,
+      message: "Error: " + error,
+    });
+  }
+  const user = await User.findOne({ email }).select(
+    "+verificationCode +verificationCodeValidation"
+  );
+  if (!user) {
+    return res.status(404).json({
+      status: false,
+      message: "Email is not yet registered kindly signup first.",
+    });
+  }
+  if (!user.verificationCode || !user.verificationCodeValidation) {
+    return res.status(404).json({
+      status: false,
+      message: "Kindly request for a new code",
+    });
+  }
+  if (user.verified) {
+    return res.status(404).json({
+      status: false,
+      message: "User is already verified",
+    });
+  }
+  const currentTime = Date.now();
+  console.log("code validation is =>'" + user.verificationCodeValidation);
+  if (currentTime - user.verificationCodeValidation > 5 * 1000 * 60) {
+    return res.status(404).json({
+      status: false,
+      message: "The code has expired kindly request for a new one.",
+    });
+  }
+  const hmacCode = hmacProcess(code, process.env.HMAC_VERIFICATION_SECRET);
+  if (hmacCode !== user.verificationCode) {
+    return res.status(404).json({
+      status: false,
+      message: "Invalid code",
+    });
+  }
+  user.verified = true;
+  user.verificationCode = undefined;
+  user.verificationCodeValidation = undefined;
+  await user.save();
+  res.status(200).json({
     status: true,
     message: "Your email has been verified successfully.",
   });
